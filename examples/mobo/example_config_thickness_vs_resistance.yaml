@@ -77,4 +77,8 @@ mobo:
       goal: maximize
     - name: sheet_resistance_ohm
       goal: minimize
-  outcome_constraints: []
+
+  objective_thresholds:
+    thickness_nm: 180
+    sheet_resistance_ohm: 20
+  constraints: []
