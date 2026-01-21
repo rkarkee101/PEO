@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Testing / tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local artifacts
+storage/
+logs/
+*.joblib
+
+# OS
+.DS_Store
+Thumbs.db

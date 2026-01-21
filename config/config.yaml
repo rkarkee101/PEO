@@ -1,0 +1,106 @@
+# Example config. Copy into your own project and edit.
+
+project:
+  name: process-engineering-optimizer
+
+storage:
+  root: ./storage
+
+logging:
+  level: INFO
+
+data:
+  # Measurement CSV format
+  delimiter: ","
+  encoding: "utf-8"
+
+  # Columns in your measurement CSV
+  tool_parameters: [temperature_C, pressure_mTorr, power_W, flow_sccm, gas]
+  target_properties: [thickness_nm, sheet_resistance_ohm]
+
+  # Optional: specify categorical columns and their levels. If levels are empty,
+  # they are inferred from the CSV.
+  categorical_params:
+    gas: []
+
+  # Optional: column units (only for documentation and report text)
+  units:
+    temperature_C: C
+    pressure_mTorr: mTorr
+    power_W: W
+    flow_sccm: sccm
+    thickness_nm: nm
+    sheet_resistance_ohm: ohm
+
+# DOE planning
+# Each method writes a DOE plan CSV under storage/runs/<run>/doe/
+# Supported: full_factorial, fractional_factorial, plackett_burman,
+# latin_hypercube, central_composite, box_behnken
+
+doe:
+  methods: [full_factorial, fractional_factorial, plackett_burman, latin_hypercube]
+  n_samples: 24
+  fractional_resolution: 3
+  interaction_depth: 2
+
+# DOE -> ML feature engineering (optional)
+# If enabled, the pipeline uses DOE analysis (p-values) to:
+#  1) select a smaller set of influential factors, and
+#  2) append interaction features for significant numeric-numeric pairs.
+# It then trains additional model variants with a "+doe" suffix (e.g., gp+doe).
+doe_to_ml:
+  enabled: false
+  selection:
+    p_value_threshold: 0.15
+    top_k: 8
+    keep_at_least: 3
+    always_keep: []
+  interactions:
+    enabled: true
+    p_value_threshold: 0.15
+    top_k: 10
+
+# Training and model comparison
+training:
+  models: [gp, random_forest, mlp]
+  autotune: true
+  max_tuning_trials: 35
+  tuning_timeout_s: 0
+  test_size: 0.2
+  cv_folds: 5
+  random_state: 42
+
+  # Basic overfit guard: a large train/test R2 gap sets overfit_flag=true
+  overfit_guard:
+    max_train_test_r2_gap: 0.15
+
+# Inverse design (target -> proposed tool settings)
+inverse_design:
+  # method: random (fast, robust) or bayesopt (requires optional extra: pip install -e ".[bo]")
+  method: random
+  search_budget: 6000
+  top_k: 10
+  lambda_uncertainty: 0.35
+
+# RAG indexing
+rag:
+  retriever: tfidf              # tfidf or sentence_transformers
+  st_model: all-MiniLM-L6-v2    # only used if retriever=sentence_transformers
+  top_k: 6
+
+# Multi-objective Bayesian optimization (EHVI-style) via Ax/BoTorch
+# Requires optional deps: pip install -e ".[mobo]"
+# When enabled, the pipeline auto-exports suggested recipes under:
+#   storage/runs/<run>/reports/suggested_recipes_mobo_<run_id>.csv
+mobo:
+  enabled: false
+  n_suggestions: 12
+  objectives:
+    - name: thickness_nm
+      goal: maximize
+    - name: sheet_resistance_ohm
+      goal: minimize
+  # Optional constraints, e.g. keep resistance below a threshold:
+  # outcome_constraints:
+  #   - "sheet_resistance_ohm <= 12"
+  outcome_constraints: []

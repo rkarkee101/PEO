@@ -1,0 +1,23 @@
+# Example override config for iterative updates / MOBO.
+#
+# Use with:
+#   peo update --parent-run-id <RUN_ID> --new-data <CSV> --name iter_1 --config-override config/config_override.yaml
+
+mobo:
+  enabled: true
+  n_suggestions: 12
+  objectives:
+    - name: thickness_nm
+      goal: maximize
+    - name: sheet_resistance_ohm
+      goal: minimize
+  # Optional constraints for keeping one metric under a threshold
+  outcome_constraints:
+    - "sheet_resistance_ohm <= 12"
+
+# You can also override the inverse design optimizer
+inverse_design:
+  method: bayesopt
+  search_budget: 6000
+  top_k: 10
+  lambda_uncertainty: 0.35

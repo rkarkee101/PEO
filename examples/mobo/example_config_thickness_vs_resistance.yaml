@@ -1,0 +1,80 @@
+project:
+  name: process-engineering-optimizer
+
+storage:
+  root: ./storage
+
+logging:
+  level: INFO
+
+data:
+  delimiter: ","
+  encoding: "utf-8"
+  tool_parameters:
+    - temperature_C
+    - pressure_mTorr
+    - power_W
+    - flow_sccm
+    - gas
+  target_properties:
+    - thickness_nm
+    - sheet_resistance_ohm
+  categorical_params:
+    gas: ["Ar", "N2", "O2"]
+  units:
+    temperature_C: "C"
+    pressure_mTorr: "mTorr"
+    power_W: "W"
+    flow_sccm: "sccm"
+    thickness_nm: "nm"
+    sheet_resistance_ohm: "ohm"
+
+doe:
+  methods: [full_factorial, fractional_factorial, plackett_burman, latin_hypercube]
+  n_samples: 24
+  fractional_resolution: 3
+  interaction_depth: 2
+
+doe_to_ml:
+  enabled: true
+  selection:
+    p_value_threshold: 0.15
+    top_k: 8
+    keep_at_least: 3
+    always_keep: []
+  interactions:
+    enabled: true
+    p_value_threshold: 0.15
+    top_k: 10
+
+training:
+  models: [gp, random_forest, mlp]
+  autotune: true
+  max_tuning_trials: 35
+  tuning_timeout_s: 0
+  test_size: 0.2
+  cv_folds: 5
+  random_state: 42
+  overfit_guard:
+    max_train_test_r2_gap: 0.15
+
+inverse_design:
+  method: bayesopt
+  search_budget: 4000
+  top_k: 10
+  lambda_uncertainty: 0.35
+
+rag:
+  retriever: sentence_transformers
+  st_model: all-MiniLM-L6-v2
+  top_k: 6
+
+mobo:
+  enabled: true
+  n_suggestions: 12
+  objectives:
+    - name: thickness_nm
+      goal: maximize
+    - name: sheet_resistance_ohm
+      goal: minimize
+  outcome_constraints: []

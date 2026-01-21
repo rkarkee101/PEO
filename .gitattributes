@@ -1,0 +1,18 @@
+# Normalize line endings to avoid CRLF/LF churn
+* text=auto
+
+# Prefer LF for source files
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+
+# Treat binaries as binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.zip binary
+*.joblib binary

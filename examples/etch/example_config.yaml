@@ -1,0 +1,59 @@
+project:
+  name: etch_demo
+
+storage:
+  root: ./storage
+
+logging:
+  level: INFO
+
+data:
+  delimiter: ","
+  encoding: "utf-8"
+  tool_parameters: [rf_power_W, pressure_mTorr, bias_V, flow_sccm, chemistry]
+  target_properties: [etch_rate_nm_min, selectivity]
+  categorical_params:
+    chemistry: [CF4, SF6, Cl2]
+  units:
+    rf_power_W: W
+    pressure_mTorr: mTorr
+    bias_V: V
+    flow_sccm: sccm
+    etch_rate_nm_min: nm/min
+    selectivity: ratio
+
+doe:
+  methods: [fractional_factorial, plackett_burman, latin_hypercube]
+  n_samples: 28
+  fractional_resolution: 3
+  interaction_depth: 2
+
+doe_to_ml:
+  enabled: true
+  selection:
+    p_value_threshold: 0.15
+    top_k: 8
+    keep_at_least: 3
+  interactions:
+    enabled: true
+    p_value_threshold: 0.15
+    top_k: 10
+
+training:
+  models: [gp, random_forest, mlp]
+  autotune: true
+  max_tuning_trials: 30
+  test_size: 0.2
+  cv_folds: 5
+  random_state: 7
+  overfit_guard:
+    max_train_test_r2_gap: 0.15
+
+inverse_design:
+  search_budget: 7000
+  top_k: 10
+  lambda_uncertainty: 0.35
+
+rag:
+  retriever: tfidf
+  top_k: 6
