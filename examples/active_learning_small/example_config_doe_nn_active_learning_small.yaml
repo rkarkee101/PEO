@@ -1,0 +1,102 @@
+project:
+  name: process-engineering-optimizer
+
+storage:
+  root: ./storage
+
+logging:
+  level: INFO
+
+data:
+  delimiter: ","
+  encoding: "utf-8"
+  tool_parameters: [temperature_C, pressure_mTorr, power_W, flow_sccm, gas]
+  target_properties: [thickness_nm, sheet_resistance_ohm]
+  categorical_params:
+    gas: [Ar, O2, N2]
+  units:
+    temperature_C: C
+    pressure_mTorr: mTorr
+    power_W: W
+    flow_sccm: sccm
+    thickness_nm: nm
+    sheet_resistance_ohm: ohm
+
+doe:
+  # For this toy example, we use space-filling DOE for fast analysis.
+  methods: [latin_hypercube]
+  n_samples: 16
+  fractional_resolution: 3
+  interaction_depth: 1
+
+doe_to_ml:
+  enabled: true
+  selection:
+    p_value_threshold: 0.20
+    top_k: 8
+    keep_at_least: 3
+    always_keep: []
+  interactions:
+    enabled: true
+    p_value_threshold: 0.20
+    top_k: 6
+  quadratic:
+    enabled: true
+    p_value_threshold: 0.25
+    top_k: 4
+
+training:
+  # Fast DOE-sized default: use DOE-informed hybrid NN + (optionally) a simple GP baseline.
+  models: [rsm_mlp, gp]
+  autotune: true
+  max_tuning_trials: 10
+  tuning_timeout_s: 0
+  test_size: 0.25
+  cv_folds: 3
+  random_state: 42
+
+  # automatic overfit protection
+  overfit_guard:
+    max_train_test_r2_gap: 0.20
+
+  model_selection:
+    metric: cv_rmse
+    overfit_penalty: 0.25
+    prefer_non_overfit: true
+    enforce_non_overfit: false
+    non_overfit_score_tolerance: 0.07
+
+  uncertainty_calibration:
+    enabled: true
+    method: quantile
+    target_coverage: 0.6827
+    min_std: 1.0e-9
+    min_scale: 0.35
+    max_scale: 20.0
+    cv_folds: null
+
+inverse_design:
+  # Inverse design used for target-seeking batches.
+  method: random
+  search_budget: 1200
+  top_k: 8
+  lambda_uncertainty: 0.35
+  lambda_ood: 0.25
+  diversity:
+    enabled: true
+    min_distance: 0.15
+    max_candidates: 300
+  multi_target:
+    enabled: true
+    weights: {}
+    tolerances:
+      thickness_nm: 15.0
+      sheet_resistance_ohm: 1.5
+
+mobo:
+  enabled: false
+
+rag:
+  retriever: tfidf
+  st_model: all-MiniLM-L6-v2
+  top_k: 6

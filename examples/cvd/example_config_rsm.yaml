@@ -1,5 +1,5 @@
 project:
-  name: cvd_demo
+  name: cvd_rsm_demo
 
 storage:
   root: ./storage
@@ -14,14 +14,8 @@ data:
   target_properties: [thickness_nm, transmittance_pct]
   categorical_params:
     precursor: [TEOS, TDMAT]
-  units:
-    temp_C: C
-    pressure_Torr: Torr
-    precursor_flow_sccm: sccm
-    carrier_flow_sccm: sccm
-    time_min: min
-    thickness_nm: nm
-    transmittance_pct: pct
+
+# DOE-native surrogate focus (good for DOE-sized datasets).
 
 doe:
   methods: [latin_hypercube, central_composite, box_behnken]
@@ -31,30 +25,30 @@ doe:
 doe_to_ml:
   enabled: true
   selection:
-    p_value_threshold: 0.15
-    top_k: 8
+    p_value_threshold: 0.20
+    top_k: 10
     keep_at_least: 3
   interactions:
     enabled: true
-    p_value_threshold: 0.15
-    top_k: 10
+    p_value_threshold: 0.20
+    top_k: 12
   quadratic:
     enabled: true
-    p_value_threshold: 0.20
+    p_value_threshold: 0.25
     top_k: 6
 
 training:
-  models: [gp, random_forest, mlp]
+  models: [rsm_gp_residual, rsm, gp, random_forest]
   autotune: true
   max_tuning_trials: 30
   test_size: 0.2
   cv_folds: 5
-  random_state: 13
+  random_state: 19
   model_selection:
     metric: cv_rmse
-    overfit_penalty: 0.25
+    overfit_penalty: 0.30
   overfit_guard:
-    max_train_test_r2_gap: 0.15
+    max_train_test_r2_gap: 0.12
   uncertainty_calibration:
     enabled: true
     method: quantile
@@ -63,8 +57,8 @@ inverse_design:
   method: random
   search_budget: 9000
   top_k: 10
-  lambda_uncertainty: 0.35
-  lambda_ood: 0.0
+  lambda_uncertainty: 0.40
+  lambda_ood: 0.30
   diversity:
     enabled: true
     min_distance: 0.12

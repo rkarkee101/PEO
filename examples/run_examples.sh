@@ -11,6 +11,30 @@ peo query --run-id "$RUN_ID" --target sheet_resistance_ohm --value 12 --question
 
 peo query --run-id "$RUN_ID" --target thickness_nm --value 380 --question "thickness 380 nm"
 
+echo "Multi-target inverse design (deposition)..."
+peo query-multi --run-id "$RUN_ID" --targets "thickness_nm=350, sheet_resistance_ohm=12"
+
+echo "Forward prediction (deposition)..."
+peo predict --run-id "$RUN_ID" --params "temperature_C=200, pressure_mTorr=10, power_W=150, flow_sccm=40, gas=Ar"
+
+echo "Closed-loop demo (export -> simulate -> update)..."
+peo query-multi --run-id "$RUN_ID" \
+  --targets "thickness_nm=350, sheet_resistance_ohm=12" \
+  --export examples/closed_loop/recommended_recipes.csv
+
+python examples/closed_loop/simulate_lab_deposition.py \
+  --in examples/closed_loop/recommended_recipes.csv \
+  --out examples/closed_loop/new_measurements.csv \
+  --seed 123
+
+peo update --parent-run-id "$RUN_ID" \
+  --new-data examples/closed_loop/new_measurements.csv \
+  --name closed_loop_iter1 \
+  --config-override examples/closed_loop/example_config.yaml
+RUN_ID_UPD=$(ls -1 storage/runs | sort -r | head -n 1)
+echo "Updated run: $RUN_ID_UPD"
+peo query-multi --run-id "$RUN_ID_UPD" --targets "thickness_nm=350, sheet_resistance_ohm=12"
+
 echo "Running etch example..."
 peo run --config examples/etch/example_config.yaml --data examples/etch/sample_data.csv --name etch
 RUN_ID2=$(ls -1 storage/runs | sort -r | head -n 1)

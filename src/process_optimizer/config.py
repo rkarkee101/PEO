@@ -90,7 +90,34 @@ def validate_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     tr.setdefault("autotune", True)
     tr.setdefault("max_tuning_trials", 40)
     tr.setdefault("tuning_timeout_s", 0)
+    tr.setdefault("tuning", {})
+    # Hyperparameter tuning backend:
+    # - auto: use Optuna if installed, otherwise random search (default)
+    # - optuna: require Optuna
+    # - random: internal random search
+    tr["tuning"].setdefault("method", "auto")
     tr.setdefault("overfit_guard", {"max_train_test_r2_gap": 0.15})
+
+    # Model selection + uncertainty calibration (safe defaults for DOE-sized datasets)
+    tr.setdefault("model_selection", {})
+    tr["model_selection"].setdefault("metric", "cv_rmse")  # cv_rmse | test_rmse
+    tr["model_selection"].setdefault("overfit_penalty", 0.25)
+    # Prefer a non-overfit model when the best score is flagged as overfit.
+    # This is a pragmatic safeguard for DOE-sized datasets.
+    tr["model_selection"].setdefault("prefer_non_overfit", True)
+    tr["model_selection"].setdefault("enforce_non_overfit", False)
+    tr["model_selection"].setdefault("non_overfit_score_tolerance", 0.05)
+    tr.setdefault("uncertainty_calibration", {})
+    tr["uncertainty_calibration"].setdefault("enabled", True)
+    tr["uncertainty_calibration"].setdefault("method", "quantile")  # quantile
+    tr["uncertainty_calibration"].setdefault("target_coverage", 0.6827)  # ~1-sigma for Normal
+    tr["uncertainty_calibration"].setdefault("min_std", 1e-9)
+    tr["uncertainty_calibration"].setdefault("cv_folds", None)  # None -> use training.cv_folds
+    tr["uncertainty_calibration"].setdefault("max_scale", 25.0)
+    tr["uncertainty_calibration"].setdefault("min_scale", 0.25)
+
+    tr.setdefault("split", {})
+    tr["split"].setdefault("stratify_by", None)  # optional categorical column name
 
     # DOE -> ML feature engineering (optional)
     cfg.setdefault("doe_to_ml", {})
@@ -106,6 +133,11 @@ def validate_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     d2m["interactions"].setdefault("p_value_threshold", 0.15)
     d2m["interactions"].setdefault("top_k", 10)
 
+    d2m.setdefault("quadratic", {})
+    d2m["quadratic"].setdefault("enabled", True)
+    d2m["quadratic"].setdefault("p_value_threshold", 0.20)
+    d2m["quadratic"].setdefault("top_k", 6)
+
     # Inverse design
     cfg.setdefault("inverse_design", {})
     inv = cfg["inverse_design"]
@@ -114,6 +146,18 @@ def validate_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     if "lambda_uncertainty" not in inv and "uncertainty_weight" in inv:
         inv["lambda_uncertainty"] = inv.get("uncertainty_weight")
     inv.setdefault("lambda_uncertainty", 0.35)
+
+    # Optional OOD penalty discourages solutions far from observed design space
+    inv.setdefault("lambda_ood", 0.0)
+    inv.setdefault("diversity", {})
+    inv["diversity"].setdefault("enabled", True)
+    inv["diversity"].setdefault("min_distance", 0.12)  # in normalized parameter space
+    inv["diversity"].setdefault("max_candidates", 500)  # candidates considered for diversification
+
+    inv.setdefault("multi_target", {})
+    inv["multi_target"].setdefault("enabled", True)
+    inv["multi_target"].setdefault("weights", {})  # optional per-target weights
+    inv["multi_target"].setdefault("tolerances", {})  # optional per-target tolerances
 
     # Storage
     cfg.setdefault("storage", {})

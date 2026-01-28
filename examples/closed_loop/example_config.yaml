@@ -1,5 +1,5 @@
 project:
-  name: deposition_demo
+  name: closed_loop_demo
 
 storage:
   root: ./storage
@@ -14,61 +14,63 @@ data:
   target_properties: [thickness_nm, sheet_resistance_ohm]
   categorical_params:
     gas: [Ar, O2, N2]
-  units:
-    temperature_C: C
-    pressure_mTorr: mTorr
-    power_W: W
-    flow_sccm: sccm
-    thickness_nm: nm
-    sheet_resistance_ohm: ohm
+
+# A slightly faster config for iterative updates (active learning).
 
 doe:
-  methods: [full_factorial, fractional_factorial, plackett_burman, latin_hypercube, central_composite, box_behnken]
+  methods: [latin_hypercube, central_composite]
   n_samples: 24
-  fractional_resolution: 3
   interaction_depth: 2
 
 doe_to_ml:
   enabled: true
   selection:
-    p_value_threshold: 0.15
-    top_k: 8
+    p_value_threshold: 0.20
+    top_k: 10
     keep_at_least: 3
   interactions:
     enabled: true
-    p_value_threshold: 0.15
-    top_k: 10
+    p_value_threshold: 0.20
+    top_k: 12
   quadratic:
     enabled: true
-    p_value_threshold: 0.20
+    p_value_threshold: 0.25
     top_k: 6
 
 training:
-  models: [gp, random_forest, mlp]
+  models: [rsm_gp_residual, gp]
   autotune: true
-  max_tuning_trials: 35
-  tuning_timeout_s: 0
+  max_tuning_trials: 25
   test_size: 0.2
   cv_folds: 5
   random_state: 42
   model_selection:
     metric: cv_rmse
-    overfit_penalty: 0.25
+    overfit_penalty: 0.30
   overfit_guard:
-    max_train_test_r2_gap: 0.15
+    max_train_test_r2_gap: 0.12
   uncertainty_calibration:
     enabled: true
     method: quantile
 
 inverse_design:
-  method: random
-  search_budget: 8000
-  top_k: 10
-  lambda_uncertainty: 0.35
-  lambda_ood: 0.0
+  method: bayesopt
+  search_budget: 9000
+  top_k: 12
+  lambda_uncertainty: 0.55
+  lambda_ood: 0.35
   diversity:
     enabled: true
-    min_distance: 0.12
+    min_distance: 0.15
+    max_candidates: 600
+  multi_target:
+    enabled: true
+    weights:
+      thickness_nm: 0.55
+      sheet_resistance_ohm: 0.45
+    tolerances:
+      thickness_nm: 12
+      sheet_resistance_ohm: 0.40
 
 rag:
   retriever: tfidf

@@ -1,5 +1,5 @@
 project:
-  name: deposition_demo
+  name: process-engineering-optimizer
 
 storage:
   root: ./storage
@@ -10,10 +10,17 @@ logging:
 data:
   delimiter: ","
   encoding: "utf-8"
-  tool_parameters: [temperature_C, pressure_mTorr, power_W, flow_sccm, gas]
-  target_properties: [thickness_nm, sheet_resistance_ohm]
+  tool_parameters:
+    - temperature_C
+    - pressure_mTorr
+    - power_W
+    - flow_sccm
+    - gas
+  target_properties:
+    - thickness_nm
+    - sheet_resistance_ohm
   categorical_params:
-    gas: [Ar, O2, N2]
+    gas: []
   units:
     temperature_C: C
     pressure_mTorr: mTorr
@@ -23,9 +30,8 @@ data:
     sheet_resistance_ohm: ohm
 
 doe:
-  methods: [full_factorial, fractional_factorial, plackett_burman, latin_hypercube, central_composite, box_behnken]
+  methods: ["latin_hypercube"]
   n_samples: 24
-  fractional_resolution: 3
   interaction_depth: 2
 
 doe_to_ml:
@@ -34,6 +40,7 @@ doe_to_ml:
     p_value_threshold: 0.15
     top_k: 8
     keep_at_least: 3
+    always_keep: []
   interactions:
     enabled: true
     p_value_threshold: 0.15
@@ -44,32 +51,47 @@ doe_to_ml:
     top_k: 6
 
 training:
-  models: [gp, random_forest, mlp]
+  # DOE-informed neural hybrid: Bayesian RSM trend + NN residual
+  models: ["rsm_mlp"]
   autotune: true
-  max_tuning_trials: 35
+  max_tuning_trials: 30
   tuning_timeout_s: 0
   test_size: 0.2
   cv_folds: 5
   random_state: 42
+  overfit_guard:
+    max_train_test_r2_gap: 0.15
   model_selection:
     metric: cv_rmse
     overfit_penalty: 0.25
-  overfit_guard:
-    max_train_test_r2_gap: 0.15
   uncertainty_calibration:
     enabled: true
     method: quantile
+    target_coverage: 0.6827
+    min_std: 1.0e-9
+    min_scale: 0.25
+    max_scale: 25.0
 
 inverse_design:
-  method: random
-  search_budget: 8000
+  # Works with any forward surrogate; uses the calibrated uncertainty.
+  method: bayesopt
+  search_budget: 1500
   top_k: 10
   lambda_uncertainty: 0.35
-  lambda_ood: 0.0
+  lambda_ood: 0.25
   diversity:
     enabled: true
     min_distance: 0.12
+    max_candidates: 500
+  multi_target:
+    enabled: true
+    weights: {}
+    tolerances: {}
+
+mobo:
+  enabled: false
 
 rag:
   retriever: tfidf
+  st_model: all-MiniLM-L6-v2
   top_k: 6

@@ -106,14 +106,33 @@ def _parse_constraints(cfg: Dict[str, Any]) -> List[ConstraintSpec]:
 
 
 def _pick_best_model_name(training_results: Dict[str, Any], target: str) -> Optional[str]:
-    """Pick best model for a target using the same score used for ranking."""
+    """Pick best model key for a target based on training_results.json.
+
+    Expected structure (new):
+      training_results['targets'][target]['model_rank'] -> list[str]
+
+    Fallbacks are provided for older formats.
+    """
     try:
-        rank = training_results.get("model_rank", {}).get(target, [])
-        if not rank:
-            return None
-        return str(rank[0].get("model"))
+        tpack = (training_results.get("targets") or {}).get(str(target)) or {}
+        rank = tpack.get("model_rank") or []
+        if isinstance(rank, list) and rank:
+            return str(rank[0])
     except Exception:
-        return None
+        pass
+
+    # Older / alternate format
+    try:
+        rank = training_results.get("model_rank", {}).get(str(target), [])
+        if isinstance(rank, list) and rank:
+            first = rank[0]
+            if isinstance(first, dict) and "model" in first:
+                return str(first.get("model"))
+            return str(first)
+    except Exception:
+        pass
+
+    return None
 
 
 def _safe_attach_trial(ax_client, params: Dict[str, Any]) -> int:
@@ -422,8 +441,12 @@ def suggest_mobo(
             if not model_path.exists():
                 continue
 
-            wrapper = joblib.load(model_path)
+            payload = joblib.load(model_path)
+            wrapper = payload.get("wrapper") if isinstance(payload, dict) else payload
             Xc = preprocessor.transform(cand_df[tool_params])
+            if hasattr(Xc, "toarray"):
+                Xc = Xc.toarray()
+            Xc = np.asarray(Xc, dtype=float)
             yhat, ystd = wrapper.predict(Xc, return_std=True)
 
             pred_cols[f"pred_{o.name}"] = np.asarray(yhat)

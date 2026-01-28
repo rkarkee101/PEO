@@ -1,5 +1,5 @@
 project:
-  name: cvd_demo
+  name: process-engineering-optimizer
 
 storage:
   root: ./storage
@@ -10,22 +10,15 @@ logging:
 data:
   delimiter: ","
   encoding: "utf-8"
-  tool_parameters: [temp_C, pressure_Torr, precursor_flow_sccm, carrier_flow_sccm, time_min, precursor]
-  target_properties: [thickness_nm, transmittance_pct]
+  tool_parameters: [temperature_C, pressure_mTorr, power_W, flow_sccm, gas]
+  target_properties: [thickness_nm, sheet_resistance_ohm]
   categorical_params:
-    precursor: [TEOS, TDMAT]
-  units:
-    temp_C: C
-    pressure_Torr: Torr
-    precursor_flow_sccm: sccm
-    carrier_flow_sccm: sccm
-    time_min: min
-    thickness_nm: nm
-    transmittance_pct: pct
+    gas: []
 
 doe:
-  methods: [latin_hypercube, central_composite, box_behnken]
-  n_samples: 32
+  # Prefer space-filling DOE when you intend to do active learning.
+  methods: [latin_hypercube]
+  n_samples: 24
   interaction_depth: 2
 
 doe_to_ml:
@@ -44,30 +37,33 @@ doe_to_ml:
     top_k: 6
 
 training:
-  models: [gp, random_forest, mlp]
+  # The DOE-informed neural hybrid (RSM trend + NN residual) is a good default for DOE-sized data.
+  models: [rsm_mlp]
   autotune: true
-  max_tuning_trials: 30
-  test_size: 0.2
+  max_tuning_trials: 25
   cv_folds: 5
-  random_state: 13
-  model_selection:
-    metric: cv_rmse
-    overfit_penalty: 0.25
+  random_state: 42
   overfit_guard:
     max_train_test_r2_gap: 0.15
   uncertainty_calibration:
     enabled: true
     method: quantile
+    target_coverage: 0.6827
+    min_std: 1.0e-9
 
 inverse_design:
+  # For closed-loop, start with random for speed; switch to bayesopt when your model is stable.
   method: random
-  search_budget: 9000
+  search_budget: 4000
   top_k: 10
   lambda_uncertainty: 0.35
-  lambda_ood: 0.0
+  lambda_ood: 0.25
   diversity:
     enabled: true
     min_distance: 0.12
+
+mobo:
+  enabled: false
 
 rag:
   retriever: tfidf

@@ -20,44 +20,38 @@ class ProcessDataset:
 
 
 class DataLoader:
-    """Read, validate, and preprocess process data.
+    """Read, validate, and preprocess process data."""
 
-    Preprocessing is done via a sklearn ColumnTransformer so the same transform
-    can be reused later (inverse design, querying).
-    """
+    def __init__(self, delimiter: str = ",", encoding: str = "utf-8"):
+        self.delimiter = delimiter
+        self.encoding = encoding
 
-    def __init__(self, cfg: Dict[str, Any]):
-        self.cfg = cfg
+    def load_csv(
+        self,
+        csv_path: str | Path,
+        tool_params: List[str],
+        target_props: List[str],
+        categorical_params: List[str] | None = None,
+        units: Dict[str, str] | None = None,
+    ) -> ProcessDataset:
+        p = Path(csv_path)
+        df = pd.read_csv(p, sep=self.delimiter, encoding=self.encoding)
 
-    def load_csv(self, path: str | Path) -> ProcessDataset:
-        data_cfg = self.cfg["data"]
-        p = Path(path)
+        tool_params = [str(x) for x in tool_params]
+        target_props = [str(x) for x in target_props]
+        categorical_params = [str(x) for x in (categorical_params or [])]
 
-        df = pd.read_csv(
-            p,
-            delimiter=data_cfg.get("delimiter", ","),
-            encoding=data_cfg.get("encoding", "utf-8"),
-        )
-
-        tool_params = list(data_cfg["tool_parameters"])
-        target_props = list(data_cfg["target_properties"])
-
-        required_cols = set(tool_params + target_props)
-        missing = sorted(required_cols - set(df.columns))
+        required = set(tool_params + target_props)
+        missing = [c for c in required if c not in df.columns]
         if missing:
-            raise ValueError(f"Missing columns in CSV: {missing}")
+            raise ValueError(f"CSV missing required columns: {missing}")
 
-        cat_cfg = data_cfg.get("categorical_params", {}) or {}
-        if isinstance(cat_cfg, list):
-            cat_cfg = {str(k): [] for k in cat_cfg}
-        categorical_params = sorted(set(cat_cfg.keys()))
+        # Normalize categorical columns to strings (for stable encoding)
+        for c in categorical_params:
+            if c in df.columns:
+                df[c] = df[c].astype(str)
 
-        meta = {
-            "n_samples": int(len(df)),
-            "n_tool_params": int(len(tool_params)),
-            "n_targets": int(len(target_props)),
-            "source": str(p),
-        }
+        meta = {"csv": str(p.resolve()), "units": dict(units or {})}
 
         return ProcessDataset(
             df=df,
@@ -67,19 +61,49 @@ class DataLoader:
             metadata=meta,
         )
 
-    def build_preprocessor(self, dataset: ProcessDataset) -> Tuple[ColumnTransformer, List[str]]:
-        """Build and fit a reusable sklearn preprocessor."""
+    def build_preprocessor(
+        self,
+        dataset: ProcessDataset,
+        *,
+        fit_df: pd.DataFrame | None = None,
+        categorical_levels: Dict[str, List[str]] | None = None,
+    ) -> Tuple[ColumnTransformer, List[str]]:
+        """Build and fit a reusable sklearn preprocessor.
+
+        Important:
+        - To avoid train/test leakage, callers may pass fit_df (typically the training split).
+        - For categorical columns, callers may provide categorical_levels (schema) to ensure
+          a stable one-hot encoding across splits and iterations (active learning).
+        """
         cat_cols = [c for c in dataset.tool_params if c in dataset.categorical_params]
         num_cols = [c for c in dataset.tool_params if c not in dataset.categorical_params]
+
+        df_fit = fit_df if fit_df is not None else dataset.df
 
         transformers = []
         if num_cols:
             transformers.append(("num", StandardScaler(), num_cols))
         if cat_cols:
-            transformers.append(("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols))
+            levels = categorical_levels or {}
+            cats = []
+            for c in cat_cols:
+                lv = levels.get(c)
+                if lv is None or len(lv) == 0:
+                    # Infer levels from the full dataset (schema inference).
+                    # This is not a distributional leak; it only stabilizes the encoding.
+                    lv = sorted(list(pd.Series(dataset.df[c].dropna().astype(str)).unique()))
+                cats.append(list(map(str, lv)))
+
+            # sklearn parameter name changed from 'sparse' -> 'sparse_output' in newer versions.
+            try:
+                ohe = OneHotEncoder(handle_unknown="ignore", categories=cats, sparse_output=True)
+            except TypeError:
+                ohe = OneHotEncoder(handle_unknown="ignore", categories=cats, sparse=True)
+
+            transformers.append(("cat", ohe, cat_cols))
 
         pre = ColumnTransformer(transformers=transformers, remainder="drop")
-        pre.fit(dataset.df)
+        pre.fit(df_fit[dataset.tool_params])
 
         feature_names: List[str] = []
         if num_cols:
@@ -91,13 +115,12 @@ class DataLoader:
         return pre, feature_names
 
     def to_xy(self, dataset: ProcessDataset, preprocessor: ColumnTransformer) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
-        X = preprocessor.transform(dataset.df)
+        X = preprocessor.transform(dataset.df[dataset.tool_params])
         if hasattr(X, "toarray"):
             X = X.toarray()
         X = np.asarray(X, dtype=float)
 
         ys: Dict[str, np.ndarray] = {}
         for t in dataset.target_props:
-            ys[t] = np.asarray(dataset.df[t].values, dtype=float)
-
+            ys[str(t)] = np.asarray(dataset.df[t], dtype=float).ravel()
         return X, ys

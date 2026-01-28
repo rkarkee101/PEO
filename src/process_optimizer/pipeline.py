@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import joblib
+import numpy as np
 import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import NearestNeighbors
 
 from process_optimizer.config import get_categorical_levels, get_factor_bounds, validate_config
 from process_optimizer.data_loader import DataLoader
@@ -73,19 +76,101 @@ def _run_core(
         manifest["parent_run_id"] = parent_run_id
 
     # Load data
-    dl = DataLoader(cfg)
-    dataset = dl.load_csv(csv_path)
-    pre, feature_names = dl.build_preprocessor(dataset)
+    data_cfg = cfg.get("data", {}) or {}
+    tool_params = [str(x) for x in (data_cfg.get("tool_parameters") or [])]
+    target_props = [str(x) for x in (data_cfg.get("target_properties") or [])]
+    categorical_params = list((data_cfg.get("categorical_params") or {}).keys())
+
+    dl = DataLoader(delimiter=str(data_cfg.get("delimiter", ",")), encoding=str(data_cfg.get("encoding", "utf-8")))
+    dataset = dl.load_csv(
+        csv_path,
+        tool_params=tool_params,
+        target_props=target_props,
+        categorical_params=categorical_params,
+        units=(data_cfg.get("units") or {}),
+    )
+
+    # Train/test split indices (used for preprocessing fit and evaluation)
+    tr_cfg = cfg.get("training", {}) or {}
+    test_size = float(tr_cfg.get("test_size", 0.2))
+    random_state = int(tr_cfg.get("random_state", 42))
+    stratify_by = (tr_cfg.get("split", {}) or {}).get("stratify_by")
+    stratify = None
+    if stratify_by and str(stratify_by) in dataset.df.columns:
+        stratify = dataset.df[str(stratify_by)]
+
+    idx_all = np.arange(len(dataset.df), dtype=int)
+    train_idx, test_idx = train_test_split(
+        idx_all,
+        test_size=test_size,
+        random_state=random_state,
+        shuffle=True,
+        stratify=stratify if stratify is not None else None,
+    )
+    train_idx = np.asarray(train_idx, dtype=int)
+    test_idx = np.asarray(test_idx, dtype=int)
+
+    # Factor space (inferred from observed data unless overridden in config)
+    bounds = get_factor_bounds(cfg, dataset.df)
+    levels = get_categorical_levels(cfg, dataset.df)
+
+    # Fit preprocessor on train split (prevents leakage) but keep categorical schema stable
+    pre, feature_names = dl.build_preprocessor(dataset, fit_df=dataset.df.iloc[train_idx], categorical_levels=levels)
     X, y_map = dl.to_xy(dataset, pre)
     joblib.dump(pre, paths.root / "preprocessor.joblib")
+
+    # Persist split info for reproducibility
+    manifest["split"] = {
+        "train_size": int(len(train_idx)),
+        "test_size": int(len(test_idx)),
+        "train_idx": train_idx.tolist(),
+        "test_idx": test_idx.tolist(),
+        "random_state": random_state,
+        "stratify_by": (str(stratify_by) if stratify_by else None),
+    }
+
+    # Fit a simple OOD model (nearest-neighbor distance in preprocessed feature space)
+    # and store a characteristic distance scale for use as an OOD penalty in inverse design.
+    try:
+        n_train = int(len(train_idx))
+        nn_k = int(min(6, max(1, n_train)))
+        nn = NearestNeighbors(n_neighbors=nn_k, metric="euclidean")
+        Xtr = np.asarray(X[train_idx], dtype=float)
+        nn.fit(Xtr)
+
+        ood_scale = None
+        try:
+            if n_train >= 2:
+                dist, _ = nn.kneighbors(Xtr, n_neighbors=2, return_distance=True)
+                # dist[:,0] is self (0); dist[:,1] is nearest other point
+                d = np.asarray(dist)[:, 1]
+                d = d[np.isfinite(d)]
+                if len(d):
+                    ood_scale = float(np.median(d))
+            else:
+                ood_scale = 1.0
+        except Exception:
+            ood_scale = None
+
+        ood_path = paths.root / "ood_model.joblib"
+        joblib.dump(nn, ood_path)
+
+        # Backward compatible key
+        manifest["ood_model"] = str(ood_path)
+        manifest["ood"] = {
+            "model": str(ood_path),
+            "scale": (None if ood_scale is None else float(ood_scale)),
+            "metric": "euclidean",
+            "n_neighbors": int(nn_k),
+        }
+    except Exception as e:
+        logger.warning("Failed to build OOD model: %s", e)
 
     manifest["dataset"] = dataset.metadata
     manifest["features"] = {"n": int(X.shape[1]), "names": feature_names}
 
     # Factor space
-    bounds = get_factor_bounds(cfg, dataset.df)
-    levels = get_categorical_levels(cfg, dataset.df)
-
+    
     # Persist factor space for inverse design queries
     manifest["space"] = {
         "bounds": {k: [float(v[0]), float(v[1])] for k, v in bounds.items()},
@@ -133,7 +218,7 @@ def _run_core(
     analysis_out: Dict[str, Any] = {}
     for target in dataset.target_props:
         try:
-            res = analyzer.analyze(dataset.df, target=target, factors=dataset.tool_params, max_interactions=doe_cfg.get("interaction_depth", 2))
+            res = analyzer.analyze(dataset.df, target=target, factors=dataset.tool_params, max_interactions=int(doe_cfg.get("max_interactions", doe_cfg.get("interaction_depth", 10))), max_quadratic=int(doe_cfg.get("max_quadratic", 10)))
             analysis_out[target] = res
             analyzer.save_json(res, analyzer.output_dir / f"analysis_{target}.json")
             analyzer.plot_main_effects(dataset.df, target, dataset.tool_params, save_path=paths.plots / f"main_effects_{target}.png")
@@ -162,6 +247,7 @@ def _run_core(
             t: {
                 "selected_base_features": getattr(spec, "base_feature_names", []),
                 "interaction_features": getattr(spec, "interaction_feature_names", []),
+                "power_features": getattr(spec, "power_feature_names", []),
             }
             for t, spec in feature_specs.items()
         },
@@ -169,7 +255,7 @@ def _run_core(
 
     # Training
     trainer = ModelTrainer(paths.root, cfg, feature_names)
-    training_results = trainer.train_all(X, y_map, feature_specs=(feature_specs or None))
+    training_results = trainer.train_all(X, y_map, feature_specs=(feature_specs or None), train_idx=train_idx, test_idx=test_idx, pure_error=( {t: (analysis_out.get(t, {}) or {}).get("pure_error", {}) for t in dataset.target_props} if analysis_out else None ))
 
     # Model plots (parity, residuals, calibration) using saved NPZ
     plotter = Plotter(paths.plots)
@@ -179,16 +265,28 @@ def _run_core(
             if not npz:
                 continue
             try:
-                import numpy as np
 
-                arr = np.load(npz)
-                y_true = arr["y_true"]
-                y_pred = arr["y_pred"]
-                y_std = arr["y_std"]
+                with np.load(npz, allow_pickle=False) as arr:
+                    y_true = arr["y_true"]
+                    y_pred = arr["y_pred"]
+                    y_std = arr["y_std"]
                 plotter.parity(y_true, y_pred, title=f"Parity: {t} ({m})", save_name=f"parity_{t}__{m}.png")
                 plotter.residuals(y_true, y_pred, title=f"Residuals: {t} ({m})", save_name=f"residuals_{t}__{m}.png")
+                plotter.residual_histogram(
+                    y_true,
+                    y_pred,
+                    title=f"Residual histogram: {t} ({m})",
+                    save_name=f"residual_hist_{t}__{m}.png",
+                )
                 if np.all(np.isfinite(y_std)):
                     plotter.calibration_coverage(y_true, y_pred, y_std, title=f"Coverage: {t} ({m})", save_name=f"coverage_{t}__{m}.png")
+                    plotter.uncertainty_vs_error(
+                        y_true,
+                        y_pred,
+                        y_std,
+                        title=f"Uncertainty vs error: {t} ({m})",
+                        save_name=f"uncertainty_vs_error_{t}__{m}.png",
+                    )
             except Exception as e:
                 logger.warning("Plotting failed for %s/%s: %s", t, m, e)
 
@@ -216,6 +314,7 @@ def _run_core(
                 "suggestions_csv": str(mobo_pack.get("suggestions_csv")),
                 "objectives": mobo_pack.get("objectives"),
                 "constraints": mobo_pack.get("constraints"),
+                "status": mobo_pack.get("status"),
             }
         except Exception as e:
             logger.warning("MOBO suggestion step failed: %s", e)
@@ -258,7 +357,7 @@ def _run_core(
         for t, spec in feature_specs.items():
             txt = (
                 f"DOE->ML feature engineering for target {t}: selected_base_features={getattr(spec, 'base_feature_names', [])}; "
-                f"interaction_features={getattr(spec, 'interaction_feature_names', [])}. "
+                f"interaction_features={getattr(spec, 'interaction_feature_names', [])}; power_features={getattr(spec, 'power_feature_names', [])}. "
                 "Models with '+doe' in their name were trained on this engineered feature space."
             )
             docs.append((txt, {"doc_id": f"doe_to_ml_{t}_{run_id}", "type": "doe_to_ml", "target": t, "run_id": run_id}))

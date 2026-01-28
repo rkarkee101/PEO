@@ -59,13 +59,32 @@ doe_to_ml:
     enabled: true
     p_value_threshold: 0.15
     top_k: 10
+  # Optional curvature terms (x^2) for numeric factors.
+  # This makes the DOE->ML feature space closer to a classic DOE response surface.
+  quadratic:
+    enabled: true
+    p_value_threshold: 0.20
+    top_k: 6
 
 # Training and model comparison
 training:
+  # Models to consider.
+  # - gp: Gaussian process (good uncertainty)
+  # - random_forest: strong baseline, uncertainty via ensemble dispersion
+  # - mlp: neural ensemble (can work well but needs overfit guard)
+  # - rsm: DOE-native response surface (Bayesian ridge)
+  # - rsm_gp_residual: response surface mean + GP residual (best for DOE-sized data)
+  # - rsm_mlp: DOE-informed neural hybrid (Bayesian RSM trend + MLP residual ensemble)
   models: [gp, random_forest, mlp]
   autotune: true
   max_tuning_trials: 35
   tuning_timeout_s: 0
+  # Tuning backend:
+  # - auto: use Optuna if installed, otherwise use internal random search (default)
+  # - optuna: require Optuna
+  # - random: internal random search (no extra deps)
+  tuning:
+    method: auto
   test_size: 0.2
   cv_folds: 5
   random_state: 42
@@ -74,6 +93,29 @@ training:
   overfit_guard:
     max_train_test_r2_gap: 0.15
 
+  # CV-first model selection (recommended for DOE-sized datasets).
+  model_selection:
+    metric: cv_rmse          # cv_rmse | test_rmse
+    overfit_penalty: 0.25    # adds penalty when train/test R2 gap exceeds overfit_guard
+    # Automatic overfit protection (recommended for DOE-sized data):
+    # If the top-ranked model is flagged as overfit, PEO will optionally
+    # choose a non-overfit model if it is close in score.
+    prefer_non_overfit: true
+    enforce_non_overfit: false
+    non_overfit_score_tolerance: 0.05
+
+  # Uncertainty calibration (std scaling) based on CV residuals.
+  uncertainty_calibration:
+    enabled: true
+    method: quantile
+    target_coverage: 0.6827  # ~1-sigma for Normal
+    min_std: 1.0e-9
+    min_scale: 0.25
+    max_scale: 25.0
+
+  split:
+    stratify_by: null        # optional categorical column name
+
 # Inverse design (target -> proposed tool settings)
 inverse_design:
   # method: random (fast, robust) or bayesopt (requires optional extra: pip install -e ".[bo]")
@@ -81,6 +123,19 @@ inverse_design:
   search_budget: 6000
   top_k: 10
   lambda_uncertainty: 0.35
+  # Optional out-of-distribution (OOD) penalty discourages recipes far from training data.
+  lambda_ood: 0.0
+  # Non-uniqueness handler: return diverse recipes, not near-duplicates.
+  diversity:
+    enabled: true
+    min_distance: 0.12
+    max_candidates: 500
+
+  # Multi-target inverse design (used by `peo query-multi` and multi-target chat prompts).
+  multi_target:
+    enabled: true
+    weights: {}     # optional: {target_name: weight}
+    tolerances: {}  # optional: {target_name: tolerance}
 
 # RAG indexing
 rag:

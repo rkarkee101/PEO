@@ -38,6 +38,10 @@ doe_to_ml:
     enabled: true
     p_value_threshold: 0.15
     top_k: 10
+  quadratic:
+    enabled: true
+    p_value_threshold: 0.20
+    top_k: 6
 
 training:
   models: [gp, random_forest, mlp]
@@ -46,13 +50,24 @@ training:
   test_size: 0.2
   cv_folds: 5
   random_state: 7
+  model_selection:
+    metric: cv_rmse
+    overfit_penalty: 0.25
   overfit_guard:
     max_train_test_r2_gap: 0.15
+  uncertainty_calibration:
+    enabled: true
+    method: quantile
 
 inverse_design:
+  method: random
   search_budget: 7000
   top_k: 10
   lambda_uncertainty: 0.35
+  lambda_ood: 0.0
+  diversity:
+    enabled: true
+    min_distance: 0.12
 
 rag:
   retriever: tfidf

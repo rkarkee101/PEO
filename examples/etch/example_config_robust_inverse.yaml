@@ -1,0 +1,80 @@
+project:
+  name: etch_robust_inverse
+
+storage:
+  root: ./storage
+
+logging:
+  level: INFO
+
+data:
+  delimiter: ","
+  encoding: "utf-8"
+  tool_parameters: [rf_power_W, pressure_mTorr, bias_V, flow_sccm, chemistry]
+  target_properties: [etch_rate_nm_min, selectivity]
+  categorical_params:
+    chemistry: [CF4, SF6, Cl2]
+
+# This config emphasizes robust inverse design:
+# - multi-target inverse design with tolerances
+# - uncertainty and OOD penalties
+# - diverse solutions to handle non-uniqueness
+
+doe:
+  methods: [latin_hypercube]
+  n_samples: 24
+  interaction_depth: 2
+
+doe_to_ml:
+  enabled: true
+  selection:
+    p_value_threshold: 0.18
+    top_k: 9
+    keep_at_least: 3
+  interactions:
+    enabled: true
+    p_value_threshold: 0.18
+    top_k: 12
+  quadratic:
+    enabled: true
+    p_value_threshold: 0.22
+    top_k: 6
+
+training:
+  models: [rsm_gp_residual, gp, random_forest]
+  autotune: true
+  max_tuning_trials: 35
+  test_size: 0.2
+  cv_folds: 5
+  random_state: 11
+  model_selection:
+    metric: cv_rmse
+    overfit_penalty: 0.35
+  overfit_guard:
+    max_train_test_r2_gap: 0.12
+  uncertainty_calibration:
+    enabled: true
+    method: quantile
+
+inverse_design:
+  method: bayesopt
+  search_budget: 12000
+  top_k: 12
+  lambda_uncertainty: 0.55
+  lambda_ood: 0.45
+  diversity:
+    enabled: true
+    min_distance: 0.15
+    max_candidates: 700
+  multi_target:
+    enabled: true
+    weights:
+      etch_rate_nm_min: 0.55
+      selectivity: 0.45
+    tolerances:
+      etch_rate_nm_min: 10
+      selectivity: 0.06
+
+rag:
+  retriever: tfidf
+  top_k: 6

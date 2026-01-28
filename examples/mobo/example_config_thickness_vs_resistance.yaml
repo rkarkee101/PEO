@@ -1,40 +1,42 @@
 project:
   name: process-engineering-optimizer
-
 storage:
   root: ./storage
-
 logging:
   level: INFO
-
 data:
-  delimiter: ","
-  encoding: "utf-8"
+  delimiter: ','
+  encoding: utf-8
   tool_parameters:
-    - temperature_C
-    - pressure_mTorr
-    - power_W
-    - flow_sccm
-    - gas
+  - temperature_C
+  - pressure_mTorr
+  - power_W
+  - flow_sccm
+  - gas
   target_properties:
-    - thickness_nm
-    - sheet_resistance_ohm
+  - thickness_nm
+  - sheet_resistance_ohm
   categorical_params:
-    gas: ["Ar", "N2", "O2"]
+    gas:
+    - Ar
+    - N2
+    - O2
   units:
-    temperature_C: "C"
-    pressure_mTorr: "mTorr"
-    power_W: "W"
-    flow_sccm: "sccm"
-    thickness_nm: "nm"
-    sheet_resistance_ohm: "ohm"
-
+    temperature_C: C
+    pressure_mTorr: mTorr
+    power_W: W
+    flow_sccm: sccm
+    thickness_nm: nm
+    sheet_resistance_ohm: ohm
 doe:
-  methods: [full_factorial, fractional_factorial, plackett_burman, latin_hypercube]
+  methods:
+  - full_factorial
+  - fractional_factorial
+  - plackett_burman
+  - latin_hypercube
   n_samples: 24
   fractional_resolution: 3
   interaction_depth: 2
-
 doe_to_ml:
   enabled: true
   selection:
@@ -46,9 +48,11 @@ doe_to_ml:
     enabled: true
     p_value_threshold: 0.15
     top_k: 10
-
 training:
-  models: [gp, random_forest, mlp]
+  models:
+  - gp
+  - random_forest
+  - mlp
   autotune: true
   max_tuning_trials: 35
   tuning_timeout_s: 0
@@ -57,27 +61,38 @@ training:
   random_state: 42
   overfit_guard:
     max_train_test_r2_gap: 0.15
-
+  gp:
+    optimize_kernel: false
+    alpha: 1.0e-06
+    length_scale_bounds:
+    - 0.05
+    - 50.0
+    noise_level_bounds:
+    - 1.0e-06
+    - 0.1
+    n_restarts_optimizer: 0
+    tuning:
+      noise_level_min: 1.0e-06
+      noise_level_max: 0.01
+      length_scale_min: 0.1
+      length_scale_max: 10.0
 inverse_design:
   method: bayesopt
   search_budget: 4000
   top_k: 10
   lambda_uncertainty: 0.35
-
 rag:
   retriever: sentence_transformers
   st_model: all-MiniLM-L6-v2
   top_k: 6
-
 mobo:
   enabled: true
   n_suggestions: 12
   objectives:
-    - name: thickness_nm
-      goal: maximize
-    - name: sheet_resistance_ohm
-      goal: minimize
-
+  - name: thickness_nm
+    goal: maximize
+  - name: sheet_resistance_ohm
+    goal: minimize
   objective_thresholds:
     thickness_nm: 180
     sheet_resistance_ohm: 20

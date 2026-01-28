@@ -1,0 +1,83 @@
+project:
+  name: deposition_multi_target
+
+storage:
+  root: ./storage
+
+logging:
+  level: INFO
+
+data:
+  delimiter: ","
+  encoding: "utf-8"
+  tool_parameters: [temperature_C, pressure_mTorr, power_W, flow_sccm, gas]
+  target_properties: [thickness_nm, sheet_resistance_ohm]
+  categorical_params:
+    gas: [Ar, O2, N2]
+
+# This config is designed to demonstrate:
+# - multi-target inverse design (hit several properties simultaneously)
+# - uncertainty + OOD-penalized inverse design
+# - DOE-informed features including interactions and quadratic terms
+
+doe:
+  methods: [latin_hypercube, central_composite, box_behnken]
+  n_samples: 28
+  interaction_depth: 2
+
+doe_to_ml:
+  enabled: true
+  selection:
+    p_value_threshold: 0.20
+    top_k: 10
+    keep_at_least: 3
+  interactions:
+    enabled: true
+    p_value_threshold: 0.20
+    top_k: 12
+  quadratic:
+    enabled: true
+    p_value_threshold: 0.25
+    top_k: 6
+
+training:
+  # Prefer DOE-native surrogates for small DOE datasets.
+  models: [rsm_gp_residual, gp, random_forest]
+  autotune: true
+  max_tuning_trials: 30
+  test_size: 0.2
+  cv_folds: 5
+  random_state: 42
+  model_selection:
+    metric: cv_rmse
+    overfit_penalty: 0.30
+  overfit_guard:
+    max_train_test_r2_gap: 0.12
+  uncertainty_calibration:
+    enabled: true
+    method: quantile
+
+inverse_design:
+  method: bayesopt
+  search_budget: 12000
+  top_k: 12
+  lambda_uncertainty: 0.55
+  lambda_ood: 0.45
+  diversity:
+    enabled: true
+    min_distance: 0.15
+    max_candidates: 600
+  multi_target:
+    enabled: true
+    # weights are normalized internally
+    weights:
+      thickness_nm: 0.55
+      sheet_resistance_ohm: 0.45
+    # tolerances activate a hinge penalty (0 inside tolerance)
+    tolerances:
+      thickness_nm: 10
+      sheet_resistance_ohm: 0.35
+
+rag:
+  retriever: tfidf
+  top_k: 6
