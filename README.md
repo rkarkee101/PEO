@@ -326,23 +326,7 @@ This repo includes GitHub Actions workflows:
 - `.github/workflows/ci.yml`: lint + tests (including smoke tests)
 - `.github/workflows/release.yml`: build wheel/sdist on tags like `v0.1.0`
 
-## How to push to GitHub from scratch (Windows)
 
-1. Create a new empty repository on GitHub (no README, no license).
-2. Open PowerShell in the project folder.
-3. Run:
-
-```powershell
-git init
-git add .
-git commit -m "Initial commit"
-
-git branch -M main
-# Replace with your repo URL:
-git remote add origin https://github.com/<YOUR_USERNAME>/<YOUR_REPO>.git
-
-git push -u origin main
-```
 
 To publish a release build via the included workflow:
 
